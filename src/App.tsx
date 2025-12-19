@@ -12,11 +12,69 @@ interface Queue {
   statistics: QueueStatistics
 }
 
+type SortField = 'name' | 'visible' | 'delayed' | 'invisible'
+type SortOrder = 'asc' | 'desc'
+
 function App() {
   const [queues, setQueues] = useState<Queue[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [sortField, setSortField] = useState<SortField>('visible')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const [filterText, setFilterText] = useState('')
+
+  const sortQueues = (data: Queue[], field: SortField, order: SortOrder) => {
+    return [...data].sort((a, b) => {
+      let valueA: number | string
+      let valueB: number | string
+      
+      switch (field) {
+        case 'name':
+          valueA = a.name.toLowerCase()
+          valueB = b.name.toLowerCase()
+          break
+        case 'visible':
+          valueA = a.statistics.approximateNumberOfVisibleMessages
+          valueB = b.statistics.approximateNumberOfVisibleMessages
+          break
+        case 'delayed':
+          valueA = a.statistics.approximateNumberOfMessagesDelayed
+          valueB = b.statistics.approximateNumberOfMessagesDelayed
+          break
+        case 'invisible':
+          valueA = a.statistics.approximateNumberOfInvisibleMessages
+          valueB = b.statistics.approximateNumberOfInvisibleMessages
+          break
+      }
+      
+      if (typeof valueA === 'string') {
+        return order === 'asc' 
+          ? valueA.localeCompare(valueB as string)
+          : (valueB as string).localeCompare(valueA)
+      } else {
+        return order === 'asc' 
+          ? (valueA as number) - (valueB as number)
+          : (valueB as number) - (valueA as number)
+      }
+    })
+  }
+
+  const filterQueues = (data: Queue[]) => {
+    if (!filterText.trim()) return data
+    return data.filter(queue => 
+      queue.name.toLowerCase().includes(filterText.toLowerCase().trim())
+    )
+  }
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortOrder('desc')
+    }
+  }
 
   const fetchQueues = async () => {
     try {
@@ -26,10 +84,7 @@ function App() {
       }
       const data: Queue[] = await response.json()
       
-      // Ordenar por número de mensajes visibles (de mayor a menor)
-      const sortedQueues = data.sort((a, b) => 
-        b.statistics.approximateNumberOfVisibleMessages - a.statistics.approximateNumberOfVisibleMessages
-      )
+      const sortedQueues = sortQueues(data, sortField, sortOrder)
       
       setQueues(sortedQueues)
       setError(null)
@@ -46,11 +101,19 @@ function App() {
     fetchQueues()
 
     // Configurar intervalo para hacer fetch cada 10 segundos
-    const interval = setInterval(fetchQueues, 10000)
+    const interval = setInterval(fetchQueues, 5000)
 
     // Limpiar intervalo cuando el componente se desmonte
     return () => clearInterval(interval)
   }, [])
+
+  // Reordenar cuando cambien los criterios de ordenación
+  useEffect(() => {
+    if (queues.length > 0) {
+      const sortedQueues = sortQueues(queues, sortField, sortOrder)
+      setQueues(sortedQueues)
+    }
+  }, [sortField, sortOrder])
 
   return (
     <div className="app">
@@ -70,30 +133,75 @@ function App() {
         </div>
       )}
 
-      <div className="queues-container">
-        {queues.map((queue, index) => (
-          <div key={queue.name} className="queue-card">
-            <h3 className="queue-name">{queue.name}</h3>
-            <div className="queue-stats">
-              <div className="stat visible">
-                <span className="stat-label">Mensajes Visibles:</span>
-                <span className="stat-value">{queue.statistics.approximateNumberOfVisibleMessages}</span>
-              </div>
-              <div className="stat invisible">
-                <span className="stat-label">Mensajes Invisibles:</span>
-                <span className="stat-value">{queue.statistics.approximateNumberOfInvisibleMessages}</span>
-              </div>
-              <div className="stat delayed">
-                <span className="stat-label">Mensajes Retrasados:</span>
-                <span className="stat-value">{queue.statistics.approximateNumberOfMessagesDelayed}</span>
-              </div>
-            </div>
-          </div>
-        ))}
+      <div className="filter-container">
+        <input
+          type="text"
+          placeholder="Filtrar colas por nombre..."
+          value={filterText}
+          onChange={(e) => setFilterText(e.target.value)}
+          className="filter-input"
+        />
       </div>
 
-      {!loading && !error && queues.length === 0 && (
-        <div className="no-queues">No se encontraron colas</div>
+      <div className="table-container">
+        <table className="queues-table">
+          <thead>
+            <tr>
+              <th 
+                className={`sortable ${sortField === 'name' ? 'active' : ''}`}
+                onClick={() => handleSort('name')}
+              >
+                Nombre de la Cola
+                <span className="sort-indicator">
+                  {sortField === 'name' && (sortOrder === 'asc' ? '▲' : '▼')}
+                </span>
+              </th>
+              <th 
+                className={`sortable visible-header ${sortField === 'visible' ? 'active' : ''}`}
+                onClick={() => handleSort('visible')}
+              >
+                Visibles
+                <span className="sort-indicator">
+                  {sortField === 'visible' && (sortOrder === 'asc' ? '▲' : '▼')}
+                </span>
+              </th>
+              <th 
+                className={`sortable delayed-header ${sortField === 'delayed' ? 'active' : ''}`}
+                onClick={() => handleSort('delayed')}
+              >
+                Retrasados
+                <span className="sort-indicator">
+                  {sortField === 'delayed' && (sortOrder === 'asc' ? '▲' : '▼')}
+                </span>
+              </th>
+              <th 
+                className={`sortable invisible-header ${sortField === 'invisible' ? 'active' : ''}`}
+                onClick={() => handleSort('invisible')}
+              >
+                No Visibles
+                <span className="sort-indicator">
+                  {sortField === 'invisible' && (sortOrder === 'asc' ? '▲' : '▼')}
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {filterQueues(queues).map((queue) => (
+              <tr key={queue.name}>
+                <td className="queue-name-cell">{queue.name}</td>
+                <td className="visible-cell">{queue.statistics.approximateNumberOfVisibleMessages}</td>
+                <td className="delayed-cell">{queue.statistics.approximateNumberOfMessagesDelayed}</td>
+                <td className="invisible-cell">{queue.statistics.approximateNumberOfInvisibleMessages}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {!loading && !error && filterQueues(queues).length === 0 && (
+        <div className="no-queues">
+          {queues.length === 0 ? 'No se encontraron colas' : 'No hay colas que coincidan con el filtro'}
+        </div>
       )}
     </div>
   )

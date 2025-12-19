@@ -67,6 +67,11 @@ function App() {
     )
   }
 
+  const getFilteredAndSortedQueues = () => {
+    const filtered = filterQueues(queues)
+    return sortQueues(filtered, sortField, sortOrder)
+  }
+
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
@@ -84,13 +89,12 @@ function App() {
       }
       const data: Queue[] = await response.json()
       
-      const sortedQueues = sortQueues(data, sortField, sortOrder)
-      
-      setQueues(sortedQueues)
+      // Almacenar datos en bruto sin ordenar para mantener estado del filtro
+      setQueues(data)
       setError(null)
       setLastUpdate(new Date())
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error desconocido')
+      setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
@@ -107,13 +111,6 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
-  // Reordenar cuando cambien los criterios de ordenación
-  useEffect(() => {
-    if (queues.length > 0) {
-      const sortedQueues = sortQueues(queues, sortField, sortOrder)
-      setQueues(sortedQueues)
-    }
-  }, [sortField, sortOrder])
 
   return (
     <div className="app">
@@ -121,11 +118,11 @@ function App() {
       
       {lastUpdate && (
         <p className="last-update">
-          Última actualización: {lastUpdate.toLocaleTimeString()}
+          Last update: {lastUpdate.toLocaleTimeString()}
         </p>
       )}
 
-      {loading && <div className="loading">Cargando...</div>}
+      {loading && <div className="loading">Loading...</div>}
       
       {error && (
         <div className="error">
@@ -136,7 +133,7 @@ function App() {
       <div className="filter-container">
         <input
           type="text"
-          placeholder="Filtrar colas por nombre..."
+          placeholder="Filter queues by name..."
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
           className="filter-input"
@@ -151,7 +148,7 @@ function App() {
                 className={`sortable ${sortField === 'name' ? 'active' : ''}`}
                 onClick={() => handleSort('name')}
               >
-                Nombre de la Cola
+                Queue Name
                 <span className="sort-indicator">
                   {sortField === 'name' && (sortOrder === 'asc' ? '▲' : '▼')}
                 </span>
@@ -160,7 +157,7 @@ function App() {
                 className={`sortable visible-header ${sortField === 'visible' ? 'active' : ''}`}
                 onClick={() => handleSort('visible')}
               >
-                Visibles
+                Visible
                 <span className="sort-indicator">
                   {sortField === 'visible' && (sortOrder === 'asc' ? '▲' : '▼')}
                 </span>
@@ -169,7 +166,7 @@ function App() {
                 className={`sortable delayed-header ${sortField === 'delayed' ? 'active' : ''}`}
                 onClick={() => handleSort('delayed')}
               >
-                Retrasados
+                Delayed
                 <span className="sort-indicator">
                   {sortField === 'delayed' && (sortOrder === 'asc' ? '▲' : '▼')}
                 </span>
@@ -178,7 +175,7 @@ function App() {
                 className={`sortable invisible-header ${sortField === 'invisible' ? 'active' : ''}`}
                 onClick={() => handleSort('invisible')}
               >
-                No Visibles
+                Not Visible
                 <span className="sort-indicator">
                   {sortField === 'invisible' && (sortOrder === 'asc' ? '▲' : '▼')}
                 </span>
@@ -186,7 +183,7 @@ function App() {
             </tr>
           </thead>
           <tbody>
-            {filterQueues(queues).map((queue) => (
+            {getFilteredAndSortedQueues().map((queue) => (
               <tr key={queue.name}>
                 <td className="queue-name-cell">{queue.name}</td>
                 <td className="visible-cell">{queue.statistics.approximateNumberOfVisibleMessages}</td>
@@ -198,9 +195,9 @@ function App() {
         </table>
       </div>
 
-      {!loading && !error && filterQueues(queues).length === 0 && (
+      {!loading && !error && getFilteredAndSortedQueues().length === 0 && (
         <div className="no-queues">
-          {queues.length === 0 ? 'No se encontraron colas' : 'No hay colas que coincidan con el filtro'}
+          {queues.length === 0 ? 'No queues found' : 'No queues match the filter'}
         </div>
       )}
     </div>

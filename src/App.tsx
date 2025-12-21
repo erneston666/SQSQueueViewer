@@ -11,9 +11,12 @@ interface Queue {
   name: string
   statistics: QueueStatistics
 }
-
-type SortField = 'name' | 'visible' | 'delayed' | 'invisible'
+const getQueueType = (queueName: string): string => {
+  return queueName.toLowerCase().includes('.fifo') ? 'FIFO' : 'Standard'
+}
+type SortField = 'name' | 'type' | 'visible' | 'total' | 'invisible'
 type SortOrder = 'asc' | 'desc'
+type FilterType = 'all' | 'standard' | 'fifo' | 'withMessages'
 
 function App() {
   const [queues, setQueues] = useState<Queue[]>([])
@@ -23,6 +26,7 @@ function App() {
   const [sortField, setSortField] = useState<SortField>('visible')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [filterText, setFilterText] = useState('')
+  const [filterType, setFilterType] = useState<FilterType>('all')
 
   const sortQueues = (data: Queue[], field: SortField, order: SortOrder) => {
     return [...data].sort((a, b) => {
@@ -34,13 +38,17 @@ function App() {
           valueA = a.name.toLowerCase()
           valueB = b.name.toLowerCase()
           break
+        case 'type':
+          valueA = getQueueType(a.name)
+          valueB = getQueueType(b.name)
+          break
         case 'visible':
           valueA = a.statistics.approximateNumberOfVisibleMessages
           valueB = b.statistics.approximateNumberOfVisibleMessages
           break
-        case 'delayed':
-          valueA = a.statistics.approximateNumberOfMessagesDelayed
-          valueB = b.statistics.approximateNumberOfMessagesDelayed
+        case 'total':
+          valueA = a.statistics.approximateNumberOfVisibleMessages + a.statistics.approximateNumberOfMessagesDelayed + a.statistics.approximateNumberOfInvisibleMessages
+          valueB = b.statistics.approximateNumberOfVisibleMessages + b.statistics.approximateNumberOfMessagesDelayed + b.statistics.approximateNumberOfInvisibleMessages
           break
         case 'invisible':
           valueA = a.statistics.approximateNumberOfInvisibleMessages
@@ -61,10 +69,41 @@ function App() {
   }
 
   const filterQueues = (data: Queue[]) => {
-    if (!filterText.trim()) return data
-    return data.filter(queue => 
-      queue.name.toLowerCase().includes(filterText.toLowerCase().trim())
-    )
+    let filtered = data
+    
+    // Apply type filter
+    switch (filterType) {
+      case 'standard':
+        filtered = filtered.filter(queue => getQueueType(queue.name) === 'Standard')
+        break
+      case 'fifo':
+        filtered = filtered.filter(queue => getQueueType(queue.name) === 'FIFO')
+        break
+      case 'withMessages':
+        filtered = filtered.filter(queue => {
+          const total = queue.statistics.approximateNumberOfVisibleMessages + 
+                       queue.statistics.approximateNumberOfMessagesDelayed + 
+                       queue.statistics.approximateNumberOfInvisibleMessages
+          return total > 0
+        })
+        break
+      case 'all':
+      default:
+        // No additional filtering
+        break
+    }
+    
+    // Apply text filter
+    if (!filterText.trim()) return filtered
+    
+    // Split by comma and trim each term
+    const filterTerms = filterText.split(',').map(term => term.trim().toLowerCase()).filter(term => term.length > 0)
+    
+    return filtered.filter(queue => {
+      const queueNameLower = queue.name.toLowerCase()
+      // Return true if queue name includes any of the filter terms
+      return filterTerms.some(term => queueNameLower.includes(term))
+    })
   }
 
   const getFilteredAndSortedQueues = () => {
@@ -79,6 +118,10 @@ function App() {
       setSortField(field)
       setSortOrder('desc')
     }
+  }
+
+  const handleFilterTypeChange = (type: FilterType) => {
+    setFilterType(type)
   }
 
   const fetchQueues = async () => {
@@ -105,7 +148,7 @@ function App() {
     fetchQueues()
 
     // Configurar intervalo para hacer fetch cada 10 segundos
-    const interval = setInterval(fetchQueues, 5000)
+    const interval = setInterval(fetchQueues, 1000)
 
     // Limpiar intervalo cuando el componente se desmonte
     return () => clearInterval(interval)
@@ -130,14 +173,55 @@ function App() {
         </div>
       )}
 
-      <div className="filter-container">
-        <input
-          type="text"
-          placeholder="Filter queues by name..."
-          value={filterText}
-          onChange={(e) => setFilterText(e.target.value)}
-          className="filter-input"
-        />
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
+        <div className="filter-checkboxes" style={{display: 'flex', gap: '15px', alignItems: 'center'}}>
+          <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+            <input
+              type="checkbox"
+              checked={filterType === 'all'}
+              onChange={() => handleFilterTypeChange('all')}
+              style={{marginRight: '5px'}}
+            />
+            All
+          </label>
+          <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+            <input
+              type="checkbox"
+              checked={filterType === 'standard'}
+              onChange={() => handleFilterTypeChange('standard')}
+              style={{marginRight: '5px'}}
+            />
+            Standard
+          </label>
+          <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+            <input
+              type="checkbox"
+              checked={filterType === 'fifo'}
+              onChange={() => handleFilterTypeChange('fifo')}
+              style={{marginRight: '5px'}}
+            />
+            FIFO
+          </label>
+          <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+            <input
+              type="checkbox"
+              checked={filterType === 'withMessages'}
+              onChange={() => handleFilterTypeChange('withMessages')}
+              style={{marginRight: '5px'}}
+            />
+            With Messages
+          </label>
+        </div>
+        <div className="filter-container">
+          <input
+            type="text"
+            placeholder="Filter queues by name (comma-separated for multiple)..."
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            className="filter-input"
+            style={{width: '400px'}}
+          />
+        </div>
       </div>
 
       <div className="table-container">
@@ -154,21 +238,21 @@ function App() {
                 </span>
               </th>
               <th 
+                className={`sortable type-header ${sortField === 'type' ? 'active' : ''}`}
+                onClick={() => handleSort('type')}
+              >
+                Type
+                <span className="sort-indicator">
+                  {sortField === 'type' && (sortOrder === 'asc' ? '▲' : '▼')}
+                </span>
+              </th>
+              <th 
                 className={`sortable visible-header ${sortField === 'visible' ? 'active' : ''}`}
                 onClick={() => handleSort('visible')}
               >
                 Visible
                 <span className="sort-indicator">
                   {sortField === 'visible' && (sortOrder === 'asc' ? '▲' : '▼')}
-                </span>
-              </th>
-              <th 
-                className={`sortable delayed-header ${sortField === 'delayed' ? 'active' : ''}`}
-                onClick={() => handleSort('delayed')}
-              >
-                Delayed
-                <span className="sort-indicator">
-                  {sortField === 'delayed' && (sortOrder === 'asc' ? '▲' : '▼')}
                 </span>
               </th>
               <th 
@@ -180,17 +264,30 @@ function App() {
                   {sortField === 'invisible' && (sortOrder === 'asc' ? '▲' : '▼')}
                 </span>
               </th>
+              <th 
+                className={`sortable total-header ${sortField === 'total' ? 'active' : ''}`}
+                onClick={() => handleSort('total')}
+              >
+                Total
+                <span className="sort-indicator">
+                  {sortField === 'total' && (sortOrder === 'asc' ? '▲' : '▼')}
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {getFilteredAndSortedQueues().map((queue) => (
-              <tr key={queue.name}>
-                <td className="queue-name-cell">{queue.name}</td>
-                <td className="visible-cell">{queue.statistics.approximateNumberOfVisibleMessages}</td>
-                <td className="delayed-cell">{queue.statistics.approximateNumberOfMessagesDelayed}</td>
-                <td className="invisible-cell">{queue.statistics.approximateNumberOfInvisibleMessages}</td>
-              </tr>
-            ))}
+            {getFilteredAndSortedQueues().map((queue) => {
+              const total = queue.statistics.approximateNumberOfVisibleMessages + queue.statistics.approximateNumberOfMessagesDelayed + queue.statistics.approximateNumberOfInvisibleMessages
+              return (
+                <tr key={queue.name}>
+                  <td className="queue-name-cell">{queue.name}</td>
+                  <td className="type-cell">{getQueueType(queue.name)}</td>
+                  <td className="visible-cell">{queue.statistics.approximateNumberOfVisibleMessages}</td>
+                  <td className="invisible-cell">{queue.statistics.approximateNumberOfInvisibleMessages}</td>
+                  <td className="total-cell">{total}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

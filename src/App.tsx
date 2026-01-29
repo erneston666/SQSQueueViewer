@@ -11,6 +11,7 @@ interface Queue {
   name: string
   statistics: QueueStatistics
 }
+
 const getQueueType = (queueName: string): string => {
   return queueName.toLowerCase().includes('.fifo') ? 'FIFO' : 'Standard'
 }
@@ -132,7 +133,6 @@ function App() {
       }
       const data: Queue[] = await response.json()
       
-      // Almacenar datos en bruto sin ordenar para mantener estado del filtro
       setQueues(data)
       setError(null)
       setLastUpdate(new Date())
@@ -144,84 +144,85 @@ function App() {
   }
 
   useEffect(() => {
-    // Fetch inicial
     fetchQueues()
+  }, [])
 
-    // Configurar intervalo para hacer fetch cada 10 segundos
+  useEffect(() => {
+    // Set up polling interval - refresh every second
     const interval = setInterval(fetchQueues, 1000)
 
-    // Limpiar intervalo cuando el componente se desmonte
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+    }
   }, [])
 
 
   return (
     <div className="app">
-      <h1>SQS Queue Viewer</h1>
+      <header className="app-header">
+        <h1>Local SQS Queue Viewer</h1>
+        <p className="header-subtitle">Monitoring local SQS queues on localhost:9325</p>
+      </header>
       
-      {lastUpdate && (
-        <p className="last-update">
-          Last update: {lastUpdate.toLocaleTimeString()}
-        </p>
-      )}
-
       {loading && <div className="loading">Loading...</div>}
       
       {error && (
         <div className="error">
-          Error: {error}
+          Error connecting to local SQS: {error}
         </div>
       )}
 
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
-        <div className="filter-checkboxes" style={{display: 'flex', gap: '15px', alignItems: 'center'}}>
-          <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
+      <div className="controls-section">
+        <div className="filter-section">
+          <div className="filter-types">
+            <label className="filter-type">
+              <input
+                type="radio"
+                checked={filterType === 'all'}
+                onChange={() => handleFilterTypeChange('all')}
+              />
+              <span>All</span>
+            </label>
+            <label className="filter-type">
+              <input
+                type="radio"
+                checked={filterType === 'standard'}
+                onChange={() => handleFilterTypeChange('standard')}
+              />
+              <span>Standard</span>
+            </label>
+            <label className="filter-type">
+              <input
+                type="radio"
+                checked={filterType === 'fifo'}
+                onChange={() => handleFilterTypeChange('fifo')}
+              />
+              <span>FIFO</span>
+            </label>
+            <label className="filter-type">
+              <input
+                type="radio"
+                checked={filterType === 'withMessages'}
+                onChange={() => handleFilterTypeChange('withMessages')}
+              />
+              <span>With Messages</span>
+            </label>
+          </div>
+          <div className="search-section">
             <input
-              type="checkbox"
-              checked={filterType === 'all'}
-              onChange={() => handleFilterTypeChange('all')}
-              style={{marginRight: '5px'}}
+              type="text"
+              placeholder="Search queues..."
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              className="search-input"
             />
-            All
-          </label>
-          <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-            <input
-              type="checkbox"
-              checked={filterType === 'standard'}
-              onChange={() => handleFilterTypeChange('standard')}
-              style={{marginRight: '5px'}}
-            />
-            Standard
-          </label>
-          <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-            <input
-              type="checkbox"
-              checked={filterType === 'fifo'}
-              onChange={() => handleFilterTypeChange('fifo')}
-              style={{marginRight: '5px'}}
-            />
-            FIFO
-          </label>
-          <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer'}}>
-            <input
-              type="checkbox"
-              checked={filterType === 'withMessages'}
-              onChange={() => handleFilterTypeChange('withMessages')}
-              style={{marginRight: '5px'}}
-            />
-            With Messages
-          </label>
+          </div>
         </div>
-        <div className="filter-container">
-          <input
-            type="text"
-            placeholder="Filter queues by name (comma-separated for multiple)..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            className="filter-input"
-            style={{width: '400px'}}
-          />
-        </div>
+        {lastUpdate && (
+          <div className="last-update">
+            Last updated: {lastUpdate.toLocaleTimeString()}
+          </div>
+        )}
       </div>
 
       <div className="table-container">

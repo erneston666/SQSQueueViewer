@@ -30,15 +30,14 @@ function App() {
   const [filterType, setFilterType] = useState<FilterType>('all')
   const [operationInProgress, setOperationInProgress] = useState<{[queueName: string]: 'purging' | 'deleting'}>({})  
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false)
 
   // Load favorites from localStorage on component mount
   useEffect(() => {
     const savedFavorites = localStorage.getItem('sqsQueueViewerFavorites')
-    console.log('Loading favorites from localStorage:', savedFavorites)
     if (savedFavorites) {
       try {
         const favoritesArray = JSON.parse(savedFavorites)
-        console.log('Parsed favorites:', favoritesArray)
         setFavorites(new Set(favoritesArray))
       } catch (err) {
         console.error('Failed to load favorites from localStorage:', err)
@@ -49,22 +48,49 @@ function App() {
   // Save favorites to localStorage whenever favorites change
   useEffect(() => {
     const favoritesArray = Array.from(favorites)
-    console.log('Saving favorites to localStorage:', favoritesArray)
     localStorage.setItem('sqsQueueViewerFavorites', JSON.stringify(favoritesArray))
   }, [favorites])
 
+  // Load theme preference from localStorage on component mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('sqsQueueViewerTheme')
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    
+    if (savedTheme) {
+      const isDark = savedTheme === 'dark'
+      setIsDarkMode(isDark)
+    } else {
+      setIsDarkMode(prefersDark)
+    }
+  }, [])
+
+  // Save theme preference and apply to document
+  useEffect(() => {
+    const theme = isDarkMode ? 'dark' : 'light'
+    localStorage.setItem('sqsQueueViewerTheme', theme)
+    
+    // Apply theme to document root
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark-theme')
+      document.documentElement.classList.remove('light-theme')
+    } else {
+      document.documentElement.classList.add('light-theme')
+      document.documentElement.classList.remove('dark-theme')
+    }
+  }, [isDarkMode])
+
+  const toggleTheme = () => {
+    setIsDarkMode(prev => !prev)
+  }
+
   const toggleFavorite = (queueName: string) => {
-    console.log('Toggling favorite for:', queueName)
     setFavorites(prev => {
       const newFavorites = new Set(prev)
       if (newFavorites.has(queueName)) {
         newFavorites.delete(queueName)
-        console.log('Removed from favorites:', queueName)
       } else {
         newFavorites.add(queueName)
-        console.log('Added to favorites:', queueName)
       }
-      console.log('New favorites:', Array.from(newFavorites))
       return newFavorites
     })
   }
@@ -279,6 +305,14 @@ function App() {
       <header className="app-header">
         <h1>Local SQS Queue Viewer</h1>
         <p className="header-subtitle">Monitoring local SQS queues on localhost:9325</p>
+        <button 
+          className="theme-toggle"
+          onClick={toggleTheme}
+          title={`Switch to ${isDarkMode ? 'light' : 'dark'} mode`}
+          type="button"
+        >
+          {isDarkMode ? '☀️' : '🌙'}
+        </button>
       </header>
       
       {loading && <div className="loading">Loading...</div>}

@@ -17,7 +17,7 @@ const getQueueType = (queueName: string): string => {
 }
 type SortField = 'name' | 'type' | 'visible' | 'total' | 'invisible'
 type SortOrder = 'asc' | 'desc'
-type FilterType = 'all' | 'standard' | 'fifo' | 'withMessages'
+type FilterType = 'all' | 'standard' | 'fifo' | 'withMessages' | 'favorites'
 
 function App() {
   const [queues, setQueues] = useState<Queue[]>([])
@@ -29,6 +29,45 @@ function App() {
   const [filterText, setFilterText] = useState('')
   const [filterType, setFilterType] = useState<FilterType>('all')
   const [operationInProgress, setOperationInProgress] = useState<{[queueName: string]: 'purging' | 'deleting'}>({})  
+  const [favorites, setFavorites] = useState<Set<string>>(new Set())
+
+  // Load favorites from localStorage on component mount
+  useEffect(() => {
+    const savedFavorites = localStorage.getItem('sqsQueueViewerFavorites')
+    console.log('Loading favorites from localStorage:', savedFavorites)
+    if (savedFavorites) {
+      try {
+        const favoritesArray = JSON.parse(savedFavorites)
+        console.log('Parsed favorites:', favoritesArray)
+        setFavorites(new Set(favoritesArray))
+      } catch (err) {
+        console.error('Failed to load favorites from localStorage:', err)
+      }
+    }
+  }, [])
+
+  // Save favorites to localStorage whenever favorites change
+  useEffect(() => {
+    const favoritesArray = Array.from(favorites)
+    console.log('Saving favorites to localStorage:', favoritesArray)
+    localStorage.setItem('sqsQueueViewerFavorites', JSON.stringify(favoritesArray))
+  }, [favorites])
+
+  const toggleFavorite = (queueName: string) => {
+    console.log('Toggling favorite for:', queueName)
+    setFavorites(prev => {
+      const newFavorites = new Set(prev)
+      if (newFavorites.has(queueName)) {
+        newFavorites.delete(queueName)
+        console.log('Removed from favorites:', queueName)
+      } else {
+        newFavorites.add(queueName)
+        console.log('Added to favorites:', queueName)
+      }
+      console.log('New favorites:', Array.from(newFavorites))
+      return newFavorites
+    })
+  }
 
   const sortQueues = (data: Queue[], field: SortField, order: SortOrder) => {
     return [...data].sort((a, b) => {
@@ -88,6 +127,9 @@ function App() {
                        queue.statistics.approximateNumberOfInvisibleMessages
           return total > 0
         })
+        break
+      case 'favorites':
+        filtered = filtered.filter(queue => favorites.has(queue.name))
         break
       case 'all':
       default:
@@ -282,6 +324,14 @@ function App() {
               />
               <span>With Messages</span>
             </label>
+            <label className="filter-type">
+              <input
+                type="radio"
+                checked={filterType === 'favorites'}
+                onChange={() => handleFilterTypeChange('favorites')}
+              />
+              <span>⭐ Favorites</span>
+            </label>
           </div>
           <div className="search-section">
             <input
@@ -361,7 +411,23 @@ function App() {
               
               return (
                 <tr key={queue.name}>
-                  <td className="queue-name-cell">{queue.name}</td>
+                  <td className="queue-name-cell">
+                    <div className="queue-name-container">
+                      <button
+                        className={`favorite-button ${favorites.has(queue.name) ? 'favorited' : ''}`}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          toggleFavorite(queue.name)
+                        }}
+                        title={favorites.has(queue.name) ? 'Remove from favorites' : 'Add to favorites'}
+                        type="button"
+                      >
+                        {favorites.has(queue.name) ? '⭐' : '☆'}
+                      </button>
+                      <span className="queue-name">{queue.name}</span>
+                    </div>
+                  </td>
                   <td className="type-cell">{getQueueType(queue.name)}</td>
                   <td className="visible-cell">{queue.statistics.approximateNumberOfVisibleMessages}</td>
                   <td className="invisible-cell">{queue.statistics.approximateNumberOfInvisibleMessages}</td>
@@ -374,7 +440,7 @@ function App() {
                         disabled={!!isOperationInProgress}
                         title="Purge all messages from this queue"
                       >
-                        {isOperationInProgress === 'purging' ? '⏳' : '🧹'}
+                        {isOperationInProgress === 'purging' ? '⏳' : '⚡'}
                         Purge
                       </button>
                       <button

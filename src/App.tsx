@@ -28,6 +28,7 @@ function App() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [filterText, setFilterText] = useState('')
   const [filterType, setFilterType] = useState<FilterType>('all')
+  const [operationInProgress, setOperationInProgress] = useState<{[queueName: string]: 'purging' | 'deleting'}>({})  
 
   const sortQueues = (data: Queue[], field: SortField, order: SortOrder) => {
     return [...data].sort((a, b) => {
@@ -140,6 +141,80 @@ function App() {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const purgeQueue = async (queueName: string) => {
+    if (!confirm(`Are you sure you want to purge all messages from queue "${queueName}"? This action cannot be undone.`)) {
+      return
+    }
+
+    setOperationInProgress(prev => ({ ...prev, [queueName]: 'purging' }))
+    
+    try {
+      // ElasticMQ uses SQS interface - need to get queue URL first
+      const queueUrl = `http://localhost:9324/000000000000/${queueName}`
+      
+      const response = await fetch('http://localhost:9324/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `Action=PurgeQueue&QueueUrl=${encodeURIComponent(queueUrl)}&Version=2012-11-05`
+      })
+      
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(`Failed to purge queue: ${response.status} ${response.statusText} - ${text}`)
+      }
+      
+      // Refresh queues after successful purge
+      await fetchQueues()
+    } catch (err) {
+      setError(`Failed to purge queue "${queueName}": ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setOperationInProgress(prev => {
+        const newState = { ...prev }
+        delete newState[queueName]
+        return newState
+      })
+    }
+  }
+
+  const deleteQueue = async (queueName: string) => {
+    if (!confirm(`Are you sure you want to DELETE the queue "${queueName}"? This will permanently remove the queue and ALL its messages. This action cannot be undone.`)) {
+      return
+    }
+
+    setOperationInProgress(prev => ({ ...prev, [queueName]: 'deleting' }))
+    
+    try {
+      // ElasticMQ uses SQS interface - need to get queue URL first
+      const queueUrl = `http://localhost:9324/000000000000/${queueName}`
+      
+      const response = await fetch('http://localhost:9324/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `Action=DeleteQueue&QueueUrl=${encodeURIComponent(queueUrl)}&Version=2012-11-05`
+      })
+      
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(`Failed to delete queue: ${response.status} ${response.statusText} - ${text}`)
+      }
+      
+      // Refresh queues after successful deletion
+      await fetchQueues()
+    } catch (err) {
+      setError(`Failed to delete queue "${queueName}": ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setOperationInProgress(prev => {
+        const newState = { ...prev }
+        delete newState[queueName]
+        return newState
+      })
     }
   }
 
@@ -274,11 +349,16 @@ function App() {
                   {sortField === 'total' && (sortOrder === 'asc' ? '▲' : '▼')}
                 </span>
               </th>
+              <th className="actions-header">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
             {getFilteredAndSortedQueues().map((queue) => {
               const total = queue.statistics.approximateNumberOfVisibleMessages + queue.statistics.approximateNumberOfMessagesDelayed + queue.statistics.approximateNumberOfInvisibleMessages
+              const isOperationInProgress = operationInProgress[queue.name]
+              
               return (
                 <tr key={queue.name}>
                   <td className="queue-name-cell">{queue.name}</td>
@@ -286,6 +366,28 @@ function App() {
                   <td className="visible-cell">{queue.statistics.approximateNumberOfVisibleMessages}</td>
                   <td className="invisible-cell">{queue.statistics.approximateNumberOfInvisibleMessages}</td>
                   <td className="total-cell">{total}</td>
+                  <td className="actions-cell">
+                    <div className="action-buttons">
+                      <button
+                        className="purge-button"
+                        onClick={() => purgeQueue(queue.name)}
+                        disabled={!!isOperationInProgress}
+                        title="Purge all messages from this queue"
+                      >
+                        {isOperationInProgress === 'purging' ? '⏳' : '🧹'}
+                        Purge
+                      </button>
+                      <button
+                        className="delete-button"
+                        onClick={() => deleteQueue(queue.name)}
+                        disabled={!!isOperationInProgress}
+                        title="Delete this queue permanently"
+                      >
+                        {isOperationInProgress === 'deleting' ? '⏳' : '🗑️'}
+                        Delete
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               )
             })}

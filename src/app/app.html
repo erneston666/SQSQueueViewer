@@ -1,0 +1,169 @@
+<p-toast></p-toast>
+<p-confirmDialog [style]="{ width: 'min(32rem, 92vw)' }"></p-confirmDialog>
+
+<main class="app-shell">
+  <header class="app-header">
+    <div>
+      <h1>Local SQS Queue Viewer</h1>
+      <p>localhost:9325/statistics/queues</p>
+    </div>
+
+    <div class="header-actions">
+      <p-tag [severity]="getStatusSeverity()" [value]="getStatusLabel()"></p-tag>
+      <p-button
+        [rounded]="true"
+        [text]="true"
+        [icon]="isDarkMode() ? 'pi pi-sun' : 'pi pi-moon'"
+        [pTooltip]="isDarkMode() ? 'Switch to light mode' : 'Switch to dark mode'"
+        aria-label="Toggle color theme"
+        (onClick)="toggleTheme()"
+      ></p-button>
+    </div>
+  </header>
+
+  <section class="summary-strip" aria-label="Queue summary">
+    <div class="summary-item">
+      <span>Queues</span>
+      <strong>{{ totalQueues() }}</strong>
+    </div>
+    <div class="summary-item visible">
+      <span>Visible</span>
+      <strong>{{ totalVisibleMessages() }}</strong>
+    </div>
+    <div class="summary-item invisible">
+      <span>Not Visible</span>
+      <strong>{{ totalInvisibleMessages() }}</strong>
+    </div>
+    <div class="summary-item total">
+      <span>Total</span>
+      <strong>{{ totalMessages() }}</strong>
+    </div>
+  </section>
+
+  @if (error()) {
+    <p-message severity="error" [text]="'Error connecting to local SQS: ' + error()"></p-message>
+  }
+
+  <section class="controls-panel" aria-label="Queue controls">
+    <p-selectButton
+      [options]="filterOptions"
+      [ngModel]="filterType()"
+      optionLabel="label"
+      optionValue="value"
+      ariaLabel="Queue filter"
+      (ngModelChange)="setFilterType($event)"
+    ></p-selectButton>
+
+    <span class="search-field">
+      <i class="pi pi-search" aria-hidden="true"></i>
+      <input
+        pInputText
+        type="search"
+        placeholder="Search queues..."
+        [ngModel]="filterText()"
+        (ngModelChange)="setFilterText($event)"
+      >
+    </span>
+
+    @if (lastUpdate()) {
+      <span class="last-update">Last updated: {{ lastUpdate() | date: 'mediumTime' }}</span>
+    }
+  </section>
+
+  <section class="table-panel" aria-label="Queues">
+    <p-table
+      [value]="queueRows()"
+      [loading]="loading()"
+      dataKey="name"
+      sortField="visible"
+      [sortOrder]="-1"
+      [tableStyle]="{ 'min-width': '760px' }"
+      styleClass="p-datatable-sm"
+    >
+      <ng-template pTemplate="header">
+        <tr>
+          <th pSortableColumn="name">
+            Queue Name
+            <p-sortIcon field="name"></p-sortIcon>
+          </th>
+          <th pSortableColumn="type" class="centered">
+            Type
+            <p-sortIcon field="type"></p-sortIcon>
+          </th>
+          <th pSortableColumn="visible" class="centered visible-column">
+            Visible
+            <p-sortIcon field="visible"></p-sortIcon>
+          </th>
+          <th pSortableColumn="invisible" class="centered invisible-column">
+            Not Visible
+            <p-sortIcon field="invisible"></p-sortIcon>
+          </th>
+          <th pSortableColumn="total" class="centered total-column">
+            Total
+            <p-sortIcon field="total"></p-sortIcon>
+          </th>
+          <th class="actions-column">Actions</th>
+        </tr>
+      </ng-template>
+
+      <ng-template pTemplate="body" let-queue>
+        <tr>
+          <td>
+            <div class="queue-name-cell">
+              <p-button
+                [rounded]="true"
+                [text]="true"
+                [severity]="queue.isFavorite ? 'warn' : 'secondary'"
+                [icon]="queue.isFavorite ? 'pi pi-star-fill' : 'pi pi-star'"
+                [pTooltip]="queue.isFavorite ? 'Remove from favorites' : 'Add to favorites'"
+                aria-label="Toggle favorite queue"
+                (onClick)="toggleFavorite(queue.name)"
+              ></p-button>
+              <span>{{ queue.name }}</span>
+            </div>
+          </td>
+          <td class="centered">
+            <p-tag [severity]="queue.type === 'FIFO' ? 'info' : 'secondary'" [value]="queue.type"></p-tag>
+          </td>
+          <td class="centered metric visible">{{ queue.visible }}</td>
+          <td class="centered metric invisible">{{ queue.invisible }}</td>
+          <td class="centered metric total">{{ queue.total }}</td>
+          <td>
+            <div class="row-actions">
+              <p-button
+                label="Purge"
+                icon="pi pi-bolt"
+                severity="warn"
+                size="small"
+                [outlined]="true"
+                [loading]="operationFor(queue.name) === 'purging'"
+                [disabled]="isQueueBusy(queue.name)"
+                (onClick)="confirmPurge(queue.name)"
+              ></p-button>
+              <p-button
+                label="Delete"
+                icon="pi pi-trash"
+                severity="danger"
+                size="small"
+                [outlined]="true"
+                [loading]="operationFor(queue.name) === 'deleting'"
+                [disabled]="isQueueBusy(queue.name)"
+                (onClick)="confirmDelete(queue.name)"
+              ></p-button>
+            </div>
+          </td>
+        </tr>
+      </ng-template>
+
+      <ng-template pTemplate="emptymessage">
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">
+              {{ queues().length === 0 ? 'No queues found' : 'No queues match the filter' }}
+            </div>
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
+  </section>
+</main>

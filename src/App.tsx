@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 
 interface QueueStatistics {
@@ -18,6 +19,35 @@ const getQueueType = (queueName: string): string => {
 type SortField = 'name' | 'type' | 'visible' | 'total' | 'invisible'
 type SortOrder = 'asc' | 'desc'
 type FilterType = 'all' | 'standard' | 'fifo' | 'withMessages' | 'favorites'
+type ColumnKey = 'name' | 'type' | 'visible' | 'invisible' | 'total' | 'actions'
+
+const MIN_COLUMN_WIDTHS: Record<ColumnKey, number> = {
+  name: 260,
+  type: 100,
+  visible: 100,
+  invisible: 130,
+  total: 90,
+  actions: 165,
+}
+
+const DEFAULT_COLUMN_WIDTHS: Record<ColumnKey, number> = {
+  name: 430,
+  type: 110,
+  visible: 115,
+  invisible: 140,
+  total: 100,
+  actions: 175,
+}
+
+const getTotalMessages = (queue: Queue) => {
+  return queue.statistics.approximateNumberOfVisibleMessages +
+    queue.statistics.approximateNumberOfMessagesDelayed +
+    queue.statistics.approximateNumberOfInvisibleMessages
+}
+
+const getTextWidth = (text: string, averageCharacterWidth = 8) => {
+  return Math.ceil(text.length * averageCharacterWidth)
+}
 
 function App() {
   const [queues, setQueues] = useState<Queue[]>([])
@@ -31,6 +61,9 @@ function App() {
   const [operationInProgress, setOperationInProgress] = useState<{[queueName: string]: 'purging' | 'deleting'}>({})  
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false)
+  const [columnWidths, setColumnWidths] = useState<Record<ColumnKey, number>>(DEFAULT_COLUMN_WIDTHS)
+  const tableContainerRef = useRef<HTMLDivElement | null>(null)
+  const hasAutoSizedInitialData = useRef(false)
 
   // Load favorites from localStorage on component mount
   useEffect(() => {
@@ -114,8 +147,8 @@ function App() {
           valueB = b.statistics.approximateNumberOfVisibleMessages
           break
         case 'total':
-          valueA = a.statistics.approximateNumberOfVisibleMessages + a.statistics.approximateNumberOfMessagesDelayed + a.statistics.approximateNumberOfInvisibleMessages
-          valueB = b.statistics.approximateNumberOfVisibleMessages + b.statistics.approximateNumberOfMessagesDelayed + b.statistics.approximateNumberOfInvisibleMessages
+          valueA = getTotalMessages(a)
+          valueB = getTotalMessages(b)
           break
         case 'invisible':
           valueA = a.statistics.approximateNumberOfInvisibleMessages
@@ -148,10 +181,7 @@ function App() {
         break
       case 'withMessages':
         filtered = filtered.filter(queue => {
-          const total = queue.statistics.approximateNumberOfVisibleMessages + 
-                       queue.statistics.approximateNumberOfMessagesDelayed + 
-                       queue.statistics.approximateNumberOfInvisibleMessages
-          return total > 0
+          return getTotalMessages(queue) > 0
         })
         break
       case 'favorites':
@@ -193,6 +223,93 @@ function App() {
   const handleFilterTypeChange = (type: FilterType) => {
     setFilterType(type)
   }
+
+  const resizeColumn = (column: ColumnKey, nextWidth: number) => {
+    setColumnWidths(prev => ({
+      ...prev,
+      [column]: Math.max(MIN_COLUMN_WIDTHS[column], Math.round(nextWidth)),
+    }))
+  }
+
+  const startColumnResize = (event: ReactPointerEvent<HTMLSpanElement>, column: ColumnKey) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const startX = event.clientX
+    const startWidth = columnWidths[column]
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      resizeColumn(column, startWidth + moveEvent.clientX - startX)
+    }
+
+    const handlePointerUp = () => {
+      document.removeEventListener('pointermove', handlePointerMove)
+      document.body.classList.remove('is-resizing-column')
+    }
+
+    document.body.classList.add('is-resizing-column')
+    document.addEventListener('pointermove', handlePointerMove)
+    document.addEventListener('pointerup', handlePointerUp, { once: true })
+  }
+
+  const autoSizeColumns = () => {
+    const visibleQueues = getFilteredAndSortedQueues()
+    const longestQueueName = visibleQueues.reduce((longest, queue) => {
+      return queue.name.length > longest.length ? queue.name : longest
+    }, 'Queue Name')
+    const longestVisible = visibleQueues.reduce((longest, queue) => {
+      return Math.max(longest, String(queue.statistics.approximateNumberOfVisibleMessages).length)
+    }, 'Visible'.length)
+    const longestInvisible = visibleQueues.reduce((longest, queue) => {
+      return Math.max(longest, String(queue.statistics.approximateNumberOfInvisibleMessages).length)
+    }, 'Not Visible'.length)
+    const longestTotal = visibleQueues.reduce((longest, queue) => {
+      return Math.max(longest, String(getTotalMessages(queue)).length)
+    }, 'Total'.length)
+
+    setColumnWidths({
+      name: Math.max(MIN_COLUMN_WIDTHS.name, getTextWidth(longestQueueName) + 76),
+      type: Math.max(MIN_COLUMN_WIDTHS.type, getTextWidth('Standard') + 46),
+      visible: Math.max(MIN_COLUMN_WIDTHS.visible, longestVisible * 10 + 46),
+      invisible: Math.max(MIN_COLUMN_WIDTHS.invisible, longestInvisible * 10 + 46),
+      total: Math.max(MIN_COLUMN_WIDTHS.total, longestTotal * 10 + 46),
+      actions: Math.max(MIN_COLUMN_WIDTHS.actions, 170),
+    })
+  }
+
+  const sizeColumnsToFit = () => {
+    const containerWidth = tableContainerRef.current?.clientWidth ?? 0
+    const minimumWidth = Object.values(MIN_COLUMN_WIDTHS).reduce((sum, width) => sum + width, 0)
+    const targetWidth = Math.max(containerWidth, minimumWidth)
+    const preferredWidths = {
+      ...DEFAULT_COLUMN_WIDTHS,
+      name: Math.max(DEFAULT_COLUMN_WIDTHS.name, columnWidths.name),
+    }
+    const preferredTotal = Object.values(preferredWidths).reduce((sum, width) => sum + width, 0)
+    const nextWidths = Object.entries(preferredWidths).reduce((next, [key, width]) => {
+      const column = key as ColumnKey
+      next[column] = Math.max(MIN_COLUMN_WIDTHS[column], Math.floor(width * targetWidth / preferredTotal))
+      return next
+    }, {} as Record<ColumnKey, number>)
+    const nextTotal = Object.values(nextWidths).reduce((sum, width) => sum + width, 0)
+    nextWidths.name += targetWidth - nextTotal
+
+    setColumnWidths(nextWidths)
+  }
+
+  const renderSortIndicator = (field: SortField) => {
+    return sortField === field ? (sortOrder === 'asc' ? '▲' : '▼') : ''
+  }
+
+  const renderResizeHandle = (column: ColumnKey) => (
+    <span
+      className="column-resize-handle"
+      onPointerDown={(event) => startColumnResize(event, column)}
+      role="separator"
+      aria-label={`Resize ${column} column`}
+      title="Resize column"
+    />
+  )
 
   const fetchQueues = async () => {
     try {
@@ -299,6 +416,15 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!hasAutoSizedInitialData.current && queues.length > 0) {
+      autoSizeColumns()
+      hasAutoSizedInitialData.current = true
+    }
+  }, [queues])
+
+  const filteredAndSortedQueues = getFilteredAndSortedQueues()
+  const totalColumnWidth = Object.values(columnWidths).reduce((sum, width) => sum + width, 0)
 
   return (
     <div className="app">
@@ -377,70 +503,104 @@ function App() {
             />
           </div>
         </div>
-        {lastUpdate && (
-          <div className="last-update">
-            Last updated: {lastUpdate.toLocaleTimeString()}
+        <div className="table-tools-row">
+          <div className="table-layout-controls" aria-label="Table layout controls">
+            <button
+              className="layout-button"
+              onClick={autoSizeColumns}
+              type="button"
+              title="Set columns to their content width"
+            >
+              Auto size
+            </button>
+            <button
+              className="layout-button"
+              onClick={sizeColumnsToFit}
+              type="button"
+              title="Resize columns to fit the visible table width"
+            >
+              Size to fit
+            </button>
           </div>
-        )}
+          {lastUpdate && (
+            <div className="last-update">
+              Last updated: {lastUpdate.toLocaleTimeString()}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="table-container">
-        <table className="queues-table">
+      <div className="table-container" ref={tableContainerRef}>
+        <table className="queues-table" style={{ minWidth: `${totalColumnWidth}px` }}>
+          <colgroup>
+            <col style={{ width: `${columnWidths.name}px` }} />
+            <col style={{ width: `${columnWidths.type}px` }} />
+            <col style={{ width: `${columnWidths.visible}px` }} />
+            <col style={{ width: `${columnWidths.invisible}px` }} />
+            <col style={{ width: `${columnWidths.total}px` }} />
+            <col style={{ width: `${columnWidths.actions}px` }} />
+          </colgroup>
           <thead>
             <tr>
               <th 
                 className={`sortable ${sortField === 'name' ? 'active' : ''}`}
                 onClick={() => handleSort('name')}
               >
-                Queue Name
-                <span className="sort-indicator">
-                  {sortField === 'name' && (sortOrder === 'asc' ? '▲' : '▼')}
+                <span className="column-header-content">
+                  Queue Name
+                  <span className="sort-indicator">{renderSortIndicator('name')}</span>
                 </span>
+                {renderResizeHandle('name')}
               </th>
               <th 
                 className={`sortable type-header ${sortField === 'type' ? 'active' : ''}`}
                 onClick={() => handleSort('type')}
               >
-                Type
-                <span className="sort-indicator">
-                  {sortField === 'type' && (sortOrder === 'asc' ? '▲' : '▼')}
+                <span className="column-header-content">
+                  Type
+                  <span className="sort-indicator">{renderSortIndicator('type')}</span>
                 </span>
+                {renderResizeHandle('type')}
               </th>
               <th 
                 className={`sortable visible-header ${sortField === 'visible' ? 'active' : ''}`}
                 onClick={() => handleSort('visible')}
               >
-                Visible
-                <span className="sort-indicator">
-                  {sortField === 'visible' && (sortOrder === 'asc' ? '▲' : '▼')}
+                <span className="column-header-content">
+                  Visible
+                  <span className="sort-indicator">{renderSortIndicator('visible')}</span>
                 </span>
+                {renderResizeHandle('visible')}
               </th>
               <th 
                 className={`sortable invisible-header ${sortField === 'invisible' ? 'active' : ''}`}
                 onClick={() => handleSort('invisible')}
               >
-                Not Visible
-                <span className="sort-indicator">
-                  {sortField === 'invisible' && (sortOrder === 'asc' ? '▲' : '▼')}
+                <span className="column-header-content">
+                  Not Visible
+                  <span className="sort-indicator">{renderSortIndicator('invisible')}</span>
                 </span>
+                {renderResizeHandle('invisible')}
               </th>
               <th 
                 className={`sortable total-header ${sortField === 'total' ? 'active' : ''}`}
                 onClick={() => handleSort('total')}
               >
-                Total
-                <span className="sort-indicator">
-                  {sortField === 'total' && (sortOrder === 'asc' ? '▲' : '▼')}
+                <span className="column-header-content">
+                  Total
+                  <span className="sort-indicator">{renderSortIndicator('total')}</span>
                 </span>
+                {renderResizeHandle('total')}
               </th>
               <th className="actions-header">
-                Actions
+                <span className="column-header-content">Actions</span>
+                {renderResizeHandle('actions')}
               </th>
             </tr>
           </thead>
           <tbody>
-            {getFilteredAndSortedQueues().map((queue) => {
-              const total = queue.statistics.approximateNumberOfVisibleMessages + queue.statistics.approximateNumberOfMessagesDelayed + queue.statistics.approximateNumberOfInvisibleMessages
+            {filteredAndSortedQueues.map((queue) => {
+              const total = getTotalMessages(queue)
               const isOperationInProgress = operationInProgress[queue.name]
               
               return (
@@ -459,7 +619,7 @@ function App() {
                       >
                         {favorites.has(queue.name) ? '⭐' : '☆'}
                       </button>
-                      <span className="queue-name">{queue.name}</span>
+                      <span className="queue-name" title={queue.name}>{queue.name}</span>
                     </div>
                   </td>
                   <td className="type-cell">{getQueueType(queue.name)}</td>
@@ -495,7 +655,7 @@ function App() {
         </table>
       </div>
 
-      {!loading && !error && getFilteredAndSortedQueues().length === 0 && (
+      {!loading && !error && filteredAndSortedQueues.length === 0 && (
         <div className="no-queues">
           {queues.length === 0 ? 'No queues found' : 'No queues match the filter'}
         </div>

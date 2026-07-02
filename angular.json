@@ -33,7 +33,6 @@
           },
           "configurations": {
             "production": {
-              "baseHref": "/SQSQueueViewer/",
               "budgets": [
                 {
                   "type": "initial",
